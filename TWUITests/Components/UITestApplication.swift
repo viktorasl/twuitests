@@ -20,6 +20,7 @@ protocol XCUIApplicationStarter {
 
 public final class UITestApplication: XCUIApplication {
     private var server: HTTPDynamicStubing?
+    private var replacementQueue: [ReplacementJob] = []
 
     func setUp() {}
 
@@ -36,13 +37,29 @@ public final class UITestApplication: XCUIApplication {
     }
 
     public func replaceValues(withOldToNewMap oldToNewMap: [String: String], in stub: APIStubInfo) {
-        let modification = RegexJSONModifier.Modification.replaceValues(oldToNewMap)
-        server?.replace(with: modification, in: stub)
+        replaceOrQueue(
+            job: ReplacementJob(
+                modification: .replaceValues(oldToNewMap),
+                stub: stub
+            )
+        )
     }
 
     public func replaceValues(of items: [String: String], in stub: APIStubInfo) {
-        let modification = RegexJSONModifier.Modification.replaceKeyValues(items)
-        server?.replace(with: modification, in: stub)
+        replaceOrQueue(
+            job: ReplacementJob(
+                modification: .replaceKeyValues(items),
+                stub: stub
+            )
+        )
+    }
+
+    fileprivate func replaceOrQueue(job: ReplacementJob) {
+        guard let server = server else {
+            replacementQueue.append(job)
+            return
+        }
+        server.replace(with: job)
     }
 }
 
@@ -55,6 +72,7 @@ extension UITestApplication: XCUIApplicationStarter {
 
     private func serverStart(with apiConfiguration: APIConfiguration) {
         server = HTTPDynamicStubs(appID: apiConfiguration.appID, port: apiConfiguration.port)
+        replacementQueue.forEach(replaceOrQueue)
         server?.start()
         apiConfiguration.apiStubs.forEach {
             server?.update(with: $0)
